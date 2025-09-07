@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Portal - Campus Event Management</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        form { margin-bottom: 20px; }
+        input, select, button { padding: 10px; margin: 5px 0; width: 100%; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .event-list { margin-top: 20px; }
+        .event-item { border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .cancel-btn { background: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; }
+        #reports { margin-top: 30px; }
+        .report-section { margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        @media (max-width: 600px) { .container { margin: 10px; padding: 10px; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Admin Portal - Manage Events</h1>
+        
+        <!-- Create Event Form -->
+        <form id="createEventForm">
+            <h2>Create Event</h2>
+            <input type="text" id="eventName" placeholder="Event Name" required>
+            <select id="eventType" required>
+                <option value="">Select Type</option>
+                <option value="Workshop">Workshop</option>
+                <option value="Fest">Fest</option>
+                <option value="Seminar">Seminar</option>
+                <option value="Tech Talk">Tech Talk</option>
+            </select>
+            <input type="datetime-local" id="eventDate" required>
+            <input type="number" id="collegeId" placeholder="College ID (e.g., 1)" value="1" required>
+            <button type="submit">Create</button>
+        </form>
+
+        <!-- Event List -->
+        <div id="eventList" class="event-list">
+            <h2>Events</h2>
+            <button onclick="loadEvents()">Refresh List</button>
+            <div id="eventsContainer"></div>
+        </div>
+
+        <!-- Reports Section -->
+        <div id="reports">
+            <h2>Reports</h2>
+            <div class="report-section">
+                <h3>Event Popularity</h3>
+                <input type="text" id="popTypeFilter" placeholder="Filter by Type (e.g., Workshop)">
+                <input type="number" id="popCollegeId" placeholder="College ID (optional)">
+                <button onclick="generatePopularityReport()">Generate</button>
+                <div id="popularityReport"></div>
+            </div>
+            <div class="report-section">
+                <h3>Top Active Students</h3>
+                <input type="number" id="topCollegeId" placeholder="College ID (optional)">
+                <button onclick="generateTopStudents()">Generate</button>
+                <div id="topStudentsReport"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8001';
+
+        // Create Event
+        document.getElementById('createEventForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('eventName').value;
+            const type = document.getElementById('eventType').value;
+            const dateStr = document.getElementById('eventDate').value;
+            const collegeId = parseInt(document.getElementById('collegeId').value);
+            const date = new Date(dateStr + ':00').toISOString();
+
+            try {
+                const response = await fetch(`${API_BASE}/events`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, type, date, college_id: collegeId })
+                });
+                if (response.ok) {
+                    alert('Event created!');
+                    document.getElementById('createEventForm').reset();
+                    loadEvents();
+                } else {
+                    alert('Error: ' + (await response.text()));
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+            }
+        });
+
+        // Load Events
+        async function loadEvents() {
+            const collegeId = prompt('Enter College ID to filter (or leave blank for all):') || '';
+            const url = collegeId ? `${API_BASE}/events?college_id=${collegeId}` : `${API_BASE}/events`;
+            try {
+                const response = await fetch(url);
+                const events = await response.json();
+                const container = document.getElementById('eventsContainer');
+                container.innerHTML = events.map(event => `
+                    <div class="event-item">
+                        ${event.name} (${event.type}) - ${new Date(event.date).toLocaleString()} | College: ${event.college_id} | Cancelled: ${event.cancelled}
+                        <button class="cancel-btn" onclick="cancelEvent(${event.id}, this)">${event.cancelled ? 'Reactivate' : 'Cancel'}</button>
+                    </div>
+                `).join('');
+            } catch (err) {
+                alert('Error loading events: ' + err.message);
+            }
+        }
+
+        // Cancel/Reactivate Event
+        async function cancelEvent(eventId, btn) {
+            const cancelled = !btn.textContent.includes('Cancel'); // Toggle
+            try {
+                const response = await fetch(`${API_BASE}/events/${eventId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cancelled })
+                });
+                if (response.ok) {
+                    loadEvents(); // Refresh list
+                } else {
+                    alert('Error: ' + (await response.text()));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        // Generate Popularity Report
+        async function generatePopularityReport() {
+            const type = document.getElementById('popTypeFilter').value;
+            const collegeId = document.getElementById('popCollegeId').value;
+            let url = `${API_BASE}/reports/event-popularity`;
+            const params = [];
+            if (type) params.push(`type=${type}`);
+            if (collegeId) params.push(`college_id=${collegeId}`);
+            if (params.length) url += '?' + params.join('&');
+            try {
+                const response = await fetch(url);
+                const report = await response.json();
+                document.getElementById('popularityReport').innerHTML = `
+                    <h4>Popularity Report (Sorted by Registrations):</h4>
+                    <ul>${report.map(e => `<li>${e.name}: ${e.registrations} registrations</li>`).join('')}</ul>
+                `;
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        // Generate Top Students Report
+        async function generateTopStudents() {
+            const collegeId = document.getElementById('topCollegeId').value;
+            let url = `${API_BASE}/reports/top-active-students`;
+            if (collegeId) url += `?college_id=${collegeId}`;
+            try {
+                const response = await fetch(url);
+                const report = await response.json();
+                document.getElementById('topStudentsReport').innerHTML = `
+                    <h4>Top Active Students:</h4>
+                    <ul>${report.map(s => `<li>${s.name} (ID: ${s.student_id}): ${s.attendances} events</li>`).join('')}</ul>
+                `;
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
